@@ -848,13 +848,17 @@ class TestCMRunner:
 
         # Training data
         with open(os.path.join(input_dir, "X.csv"), "w+") as fp:
-            feature_df = df.loc[:, df.columns != self.target[problem]]
+            if problem == ANOMALY:
+                feature_df = df
+            else:
+                feature_df = df.loc[:, df.columns != self.target[problem]]
             feature_df.to_csv(fp, index=False)
 
-        # Target data
-        with open(os.path.join(input_dir, "y.csv"), "w+") as fp:
-            target_series = df[self.target[problem]]
-            target_series.to_csv(fp, index=False, header="Target")
+        if problem != ANOMALY:
+            # Target data
+            with open(os.path.join(input_dir, "y.csv"), "w+") as fp:
+                target_series = df[self.target[problem]]
+                target_series.to_csv(fp, index=False, header="Target")
 
         # Weights data
         if weights:
@@ -863,11 +867,18 @@ class TestCMRunner:
             with open(os.path.join(input_dir, "weights.csv"), "w+") as fp:
                 weights_data.to_csv(fp, header=False)
 
-    @pytest.mark.parametrize("framework", [SKLEARN, XGB, KERAS])
-    @pytest.mark.parametrize("problem", [BINARY, REGRESSION])
+    @pytest.mark.parametrize("framework", [SKLEARN, XGB, KERAS, SKLEARN_ANOMALY])
+    @pytest.mark.parametrize("problem", [BINARY, REGRESSION, ANOMALY])
     @pytest.mark.parametrize("language", [PYTHON])
     @pytest.mark.parametrize("weights", [WEIGHTS_CSV, None])
     def test_fit_sh(self, framework, problem, language, weights, tmp_path):
+
+        if (
+            (framework == SKLEARN_ANOMALY and problem != ANOMALY)
+            or (problem == ANOMALY and framework != SKLEARN_ANOMALY)
+        ):
+            return
+
         custom_model_dir = tmp_path / "custom_model"
         self._create_custom_model_dir(
             custom_model_dir, framework, problem, language, is_training=True
@@ -877,7 +888,8 @@ class TestCMRunner:
         fit_sh = os.path.join(
             self.tests_root_path,
             "..",
-            "public_dropin_environments/{}_{}/fit.sh".format(language, framework),
+            "public_dropin_environments/{}_{}/fit.sh".format(language,
+                                                             framework if framework != SKLEARN_ANOMALY else SKLEARN),
         )
 
         input_dir = tmp_path / "input_dir"
@@ -898,6 +910,11 @@ class TestCMRunner:
             if os.environ.get("NEGATIVE_CLASS_LABEL"):
                 del os.environ["NEGATIVE_CLASS_LABEL"]
                 del os.environ["POSITIVE_CLASS_LABEL"]
+
+        if problem == ANOMALY:
+            env["ANOMALY_DETECTION"] = "true"
+        elif os.environ.get("ANOMALY_DETECTION"):
+            del os.environ["ANOMALY_DETECTION"]
 
         TestCMRunner._exec_shell_cmd(fit_sh, "Failed cmd {}".format(fit_sh), env=env)
 
